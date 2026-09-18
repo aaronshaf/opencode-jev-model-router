@@ -1,6 +1,6 @@
 {
   "name": "opencode-jev-orchestrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sticky cheap parent + Jev-gated subagents for OpenCode (Go quota stewardship)",
   "type": "module",
   "license": "MIT",

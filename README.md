@@ -22,7 +22,7 @@ Or in `~/.config/opencode/opencode.json`:
 }
 ```
 
-Pin: `"opencode-jev-orchestrator@0.2.0"`.
+Pin: `"opencode-jev-orchestrator@0.2.1"`.
 
 **2. Jev key** (OpenCode often misses shell exports)
 

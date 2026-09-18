@@ -20,3 +20,6 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# local research notes — never publish
+RESEARCH.md

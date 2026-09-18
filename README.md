@@ -31,8 +31,6 @@ printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-orchestrator.key
 chmod 600 ~/.config/opencode/opencode-jev-orchestrator.key
 ```
 
-Legacy `opencode-jev-router.key` / `.json` paths are still read.
-
 **3. Optional config**
 
 ```bash
@@ -76,16 +74,6 @@ This is an **orchestrator**, not a per-turn model switcher.
 ## Multi-provider
 
 List Claude/Codex models in tier config or use an example file — otherwise unlisted models **pin**.
-
-## Migrating from `opencode-jev-model-router`
-
-```bash
-opencode plugin opencode-jev-orchestrator -g
-# optional: rename config/key files to opencode-jev-orchestrator.*
-# old names still load
-```
-
-Remove the old plugin entry from `opencode.json` when ready.
 
 ## License
 

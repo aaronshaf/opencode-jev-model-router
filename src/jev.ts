@@ -24,12 +24,8 @@ export function resolveApiKey(
   if (cachedKey && !opts.configDir) return cachedKey;
 
   const configDir = opts.configDir ?? join(homedir(), ".config", "opencode");
-  for (const name of [
-    "opencode-jev-orchestrator.key",
-    "opencode-jev-router.key", // legacy
-  ]) {
-    const keyFile = join(configDir, name);
-    if (!existsSync(keyFile)) continue;
+  const keyFile = join(configDir, "opencode-jev-orchestrator.key");
+  if (existsSync(keyFile)) {
     try {
       const raw = readFileSync(keyFile, "utf8").trim();
       if (raw && !raw.includes("\n")) {

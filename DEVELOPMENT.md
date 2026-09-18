@@ -21,7 +21,7 @@ printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-orchestrator.key
 chmod 600 ~/.config/opencode/opencode-jev-orchestrator.key
 ```
 
-Env names: `JEV_KEY`, `JEV_API_KEY`, `TYPESAFE_API_KEY`. Legacy `opencode-jev-router.key` still works.
+Env names: `JEV_KEY`, `JEV_API_KEY`, `TYPESAFE_API_KEY`.
 
 ### Optional config
 
@@ -30,7 +30,6 @@ cp opencode-jev-orchestrator.example.json ~/.config/opencode/opencode-jev-orches
 ```
 
 Search order (later wins): `~/.config/opencode/` → `<project>/.opencode/` → `<project>/`.
-Also reads legacy `opencode-jev-router.json`.
 
 Project files may change aliases / routing thresholds, but **cannot** remap tier models unless the *global* config sets `"allowProjectModels": true`.
 

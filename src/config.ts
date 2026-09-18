@@ -498,24 +498,18 @@ function sanitizeProjectOverlay(
 /**
  * Load orchestrator config. Later files override earlier ones.
  * Search: defaults → ~/.config/opencode → project .opencode → project root.
- * Prefers `opencode-jev-orchestrator.json`; also reads legacy `opencode-jev-router.json`.
  */
 export async function loadConfig(
   directory: string,
   opts: { homedir?: string } = {},
 ): Promise<RouterConfig> {
   const home = opts.homedir ?? homedir();
-  const names = [
-    "opencode-jev-orchestrator.json",
-    "opencode-jev-router.json", // legacy
+  const name = "opencode-jev-orchestrator.json";
+  const globalPaths = [join(home, ".config", "opencode", name)];
+  const projectPaths = [
+    join(directory, ".opencode", name),
+    join(directory, name),
   ];
-  const globalPaths = names.map((n) =>
-    join(home, ".config", "opencode", n),
-  );
-  const projectPaths = names.flatMap((n) => [
-    join(directory, ".opencode", n),
-    join(directory, n),
-  ]);
 
   let merged: Record<string, unknown> = Object.create(null);
   for (const path of globalPaths) {

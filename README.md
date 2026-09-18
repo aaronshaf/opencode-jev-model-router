@@ -103,8 +103,6 @@ In OpenCode after install:
 npm run check
 ```
 
-Phase 0 hook proof: [docs/PHASE0.md](./docs/PHASE0.md) · design notes: [RESEARCH.md](./RESEARCH.md)
-
 ## License
 
 MIT

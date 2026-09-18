@@ -23,3 +23,6 @@ npm-debug.log*
 
 # local research notes — never publish
 RESEARCH.md
+
+# local probe notes — never publish
+docs/PHASE0.md

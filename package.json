@@ -1,6 +1,6 @@
 {
   "name": "opencode-jev-model-router",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Jev-based automatic per-turn model routing for OpenCode",
   "type": "module",
   "license": "MIT",

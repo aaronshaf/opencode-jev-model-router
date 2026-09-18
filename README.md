@@ -20,7 +20,7 @@ Or add it to `~/.config/opencode/opencode.json`:
 }
 ```
 
-Pin a version if you prefer: `"opencode-jev-model-router@0.1.0"`.
+Pin a version if you prefer: `"opencode-jev-model-router@0.1.2"`.
 
 **2. Add your Jev key** (OpenCode usually does not see shell `export`s)
 
@@ -29,7 +29,17 @@ printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
 chmod 600 ~/.config/opencode/opencode-jev-router.key
 ```
 
-**3. Optional:** copy [example config](https://github.com/aaronshaf/opencode-jev-model-router/blob/main/opencode-jev-router.example.json) to `~/.config/opencode/opencode-jev-router.json` (defaults work without this).
+**3. Optional config** — built-in defaults are **OpenCode Go only** (Muse / DeepSeek Flash / Luna). Copy an example only if you want to change that:
+
+```bash
+# Go-only (same as built-in defaults)
+curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.example.json \
+  -o ~/.config/opencode/opencode-jev-router.json
+
+# Go + Claude + Codex (see below)
+curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-claude-codex.example.json \
+  -o ~/.config/opencode/opencode-jev-router.json
+```
 
 **4. Restart OpenCode**, then check:
 
@@ -39,13 +49,19 @@ chmod 600 ~/.config/opencode/opencode-jev-router.key
 
 You want: `Jev key present; routing ON; …`
 
+## How routing picks models
+
+Jev chooses a **tier** (`fast` / `balanced` / `strong` / `long`). The plugin then picks the first eligible model from that tier’s `model` + `fallbacks` in the plugin config (or the built-in Go defaults if you have no config file).
+
+If your current model is **not** in that list, the turn is **pinned** — no routing. So Claude/Codex only participate after you add them to a tier (or use the example above).
+
 ## Day to day
 
-1. Select a Go model the router manages (DeepSeek Flash, Muse, Luna, …). Avoid one-off pins like `hy3` if you want routing.
+1. Start on a **managed** model (one listed in the defaults or your config). Unlisted models pin.
 2. Chat as usual.
 3. Watch for a toast such as `Routed to opencode-go/muse-spark-1.3-contributor · jev fast 98% 280ms`.
 
-| Kind of ask | Typical tier | Default model |
+| Kind of ask | Typical tier | Default model (Go) |
 |---|---|---|
 | Typo, rename, “say hi” | `fast` | Muse Spark |
 | Normal feature / fix | `balanced` | DeepSeek V4.1 Flash |
@@ -53,6 +69,12 @@ You want: `Jev key present; routing ON; …`
 | Huge migrations | `long` | Kimi K3 (off unless you enable it) |
 
 If Jev is unreachable, your current model stays put.
+
+### Also using Claude or Codex?
+
+Connect them in OpenCode (`/connect`), then use a config that lists those models under a tier — e.g. [opencode-jev-router.go-claude-codex.example.json](./opencode-jev-router.go-claude-codex.example.json): Go stays primary for fast/balanced; `strong` falls back to Sonnet then Codex if Luna is unavailable.
+
+Adjust the `anthropic/…` and `openai/…` IDs to whatever `/models` shows for your account.
 
 ### Force a tier in the prompt
 
@@ -67,7 +89,7 @@ use balanced for this endpoint
 
 - `/jev-off` — stay on whatever model you picked  
 - `/jev-on` — turn automatic routing back on  
-- Or pick an unmanaged model (e.g. `opencode-go/hy3`) to **pin**
+- Or pick an unmanaged model (not in your tier lists) to **pin**
 
 ### When a model hits its Go allowance
 

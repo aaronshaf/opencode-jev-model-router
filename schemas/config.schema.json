@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aaronshaf/opencode-jev-model-router/schemas/config.schema.json",
+  "title": "OpenCode Jev Router config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "enabled": { "type": "boolean", "default": true },
+    "allowProjectModels": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true in ~/.config/opencode config, project files may override tier models/fallbacks."
+    },
+    "tiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fast": { "$ref": "#/$defs/tier" },
+        "balanced": { "$ref": "#/$defs/tier" },
+        "strong": { "$ref": "#/$defs/tier" },
+        "long": { "$ref": "#/$defs/tier" }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failOpen": { "type": "boolean", "default": true },
+        "maxPromptBytes": { "type": "integer", "minimum": 256, "maximum": 65536 },
+        "timeoutMs": { "type": "integer", "minimum": 200, "maximum": 10000 },
+        "deadlineMs": { "type": "integer", "minimum": 200, "maximum": 15000 },
+        "maxRetries": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "minimumConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "uncertainCeiling": {
+          "type": "string",
+          "enum": ["fast", "balanced", "strong", "long"]
+        },
+        "downgradeMaxContextTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cooldownHours": { "type": "number", "minimum": 0.1, "maximum": 168 }
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "retainPrompt": { "type": "boolean" },
+        "maxEntries": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    },
+    "echoRouting": { "type": "boolean", "default": true }
+  },
+  "$defs": {
+    "tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 3,
+          "description": "OpenCode model ref as providerID/modelID (split only on the first slash)."
+        },
+        "variant": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "fallbacks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 3 }
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

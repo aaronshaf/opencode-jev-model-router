@@ -2,16 +2,25 @@
 
 Automatic per-turn model picking for [OpenCode](https://opencode.ai), powered by [Jev](https://typesafe.ai). Built for **[OpenCode Go](https://opencode.ai/docs/go/)**: easy turns burn generous models; hard turns get Luna.
 
+[npm](https://www.npmjs.com/package/opencode-jev-model-router) · [GitHub](https://github.com/aaronshaf/opencode-jev-model-router)
+
 ## Quick start
 
 **1. Install the plugin**
 
 ```bash
-git clone https://github.com/aaronshaf/opencode-jev-model-router.git
-cd opencode-jev-model-router
-npm install && npm run build
-opencode plugin "$(pwd)" -g
+opencode plugin opencode-jev-model-router -g
 ```
+
+Or add it to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "plugin": ["opencode-jev-model-router"]
+}
+```
+
+Pin a version if you prefer: `"opencode-jev-model-router@0.1.0"`.
 
 **2. Add your Jev key** (OpenCode usually does not see shell `export`s)
 
@@ -20,11 +29,7 @@ printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
 chmod 600 ~/.config/opencode/opencode-jev-router.key
 ```
 
-**3. Optional:** copy defaults you can edit later
-
-```bash
-cp opencode-jev-router.example.json ~/.config/opencode/opencode-jev-router.json
-```
+**3. Optional:** copy [example config](https://github.com/aaronshaf/opencode-jev-model-router/blob/main/opencode-jev-router.example.json) to `~/.config/opencode/opencode-jev-router.json` (defaults work without this).
 
 **4. Restart OpenCode**, then check:
 

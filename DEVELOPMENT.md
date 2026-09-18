@@ -4,6 +4,8 @@ Contributor notes for `opencode-jev-model-router`. Users: see [README.md](./READ
 
 ## Local setup
 
+For hacking on the plugin itself (users should install from npm — see [README](./README.md)):
+
 ```bash
 git clone https://github.com/aaronshaf/opencode-jev-model-router.git
 cd opencode-jev-model-router

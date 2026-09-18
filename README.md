@@ -20,7 +20,7 @@ Or add it to `~/.config/opencode/opencode.json`:
 }
 ```
 
-Pin a version if you prefer: `"opencode-jev-model-router@0.1.3"`.
+Pin a version if you prefer: `"opencode-jev-model-router@0.1.4"`.
 
 **2. Add your Jev key** (OpenCode usually does not see shell `export`s)
 
@@ -29,20 +29,26 @@ printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
 chmod 600 ~/.config/opencode/opencode-jev-router.key
 ```
 
-**3. Optional config** — built-in defaults are **OpenCode Go only** (Muse / DeepSeek Flash / Luna). Copy an example only if you want to change that:
+**3. Optional config** — built-in defaults are **OpenCode Go only**. Pick an example that matches how you use OpenCode:
 
 ```bash
-# Go-only (same as built-in defaults)
-curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.example.json \
-  -o ~/.config/opencode/opencode-jev-router.json
+BASE=https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main
+DEST=~/.config/opencode/opencode-jev-router.json
 
-# Go + Claude (Anthropic connected via /connect)
-curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-claude.example.json \
-  -o ~/.config/opencode/opencode-jev-router.json
+# Go only (same as built-in defaults)
+curl -fsSL "$BASE/opencode-jev-router.example.json" -o "$DEST"
 
-# Go + Codex (OpenAI connected via /connect)
-curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-codex.example.json \
-  -o ~/.config/opencode/opencode-jev-router.json
+# Go + Claude
+curl -fsSL "$BASE/opencode-jev-router.go-claude.example.json" -o "$DEST"
+
+# Go + Codex
+curl -fsSL "$BASE/opencode-jev-router.go-codex.example.json" -o "$DEST"
+
+# Claude only (no Go)
+curl -fsSL "$BASE/opencode-jev-router.claude.example.json" -o "$DEST"
+
+# Codex / OpenAI only (no Go)
+curl -fsSL "$BASE/opencode-jev-router.codex.example.json" -o "$DEST"
 ```
 
 **4. Restart OpenCode**, then check:
@@ -76,14 +82,17 @@ If Jev is unreachable, your current model stays put.
 
 ### Also using Claude or Codex?
 
-Connect the provider in OpenCode (`/connect`), then pick **one** example — most people use Claude *or* Codex, not both:
+Connect providers with `/connect`, then pick a config that lists those models (otherwise they **pin** and won’t route):
 
-| Setup | Example config |
+| Setup | Example |
 |---|---|
+| Go only | [opencode-jev-router.example.json](./opencode-jev-router.example.json) (or skip config — built-in) |
 | Go + Claude | [opencode-jev-router.go-claude.example.json](./opencode-jev-router.go-claude.example.json) |
 | Go + Codex | [opencode-jev-router.go-codex.example.json](./opencode-jev-router.go-codex.example.json) |
+| Claude only | [opencode-jev-router.claude.example.json](./opencode-jev-router.claude.example.json) |
+| Codex / OpenAI only | [opencode-jev-router.codex.example.json](./opencode-jev-router.codex.example.json) |
 
-Both keep Go for fast/balanced; `strong` falls back to Sonnet or Codex if Luna is unavailable. Adjust the `anthropic/…` or `openai/…` ID to whatever `/models` shows for your account.
+Adjust model IDs to whatever `/models` shows for your account.
 
 ### Force a tier in the prompt
 

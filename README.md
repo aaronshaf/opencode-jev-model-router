@@ -1,107 +1,103 @@
 # opencode-jev-model-router
 
-Per-turn model routing for [OpenCode](https://opencode.ai) using [Jev](https://typesafe.ai). Aimed at **[OpenCode Go](https://opencode.ai/docs/go/)** quota stewardship: cheap/generous models on easy turns, scarce ones (Luna) only when the work is hard.
+Automatic per-turn model picking for [OpenCode](https://opencode.ai), powered by [Jev](https://typesafe.ai). Built for **[OpenCode Go](https://opencode.ai/docs/go/)**: easy turns burn generous models; hard turns get Luna.
 
-Limits: [opencode.ai/docs/go/#usage-limits](https://opencode.ai/docs/go/#usage-limits) · Go notes: [docs/OPENCODE_GO.md](./docs/OPENCODE_GO.md)
+## Quick start
 
-## What it does
-
-On each real user turn, the plugin asks Jev which abstract tier fits (`fast` / `balanced` / `strong` / `long`), then mutates the pending message model before OpenCode sends it.
-
-| Turn | Tier | Default model |
-|---|---|---|
-| trivial | `fast` | `opencode-go/muse-spark-1.3-contributor` |
-| normal | `balanced` | `opencode-go/deepseek-v4.1-flash` |
-| hard | `strong` | `opencode-go/gpt-5.6-luna` |
-| exceptional | `long` | `opencode-go/kimi-k3` (off by default) |
-
-- Fail-open if Jev is down (keeps your current model)
-- Prompt overrides: `use strong`, `use luna`, `use muse`, `use balanced`, …
-- During DeepSeek **peak** hours, prefers Muse/MiMo when switching into DeepSeek’s tier
-- Up to 16 KB of each user turn is sent to typesafe.ai for classification
-
-## Install (local path — recommended while developing)
+**1. Install the plugin**
 
 ```bash
 git clone https://github.com/aaronshaf/opencode-jev-model-router.git
 cd opencode-jev-model-router
-npm install
-npm run build
-```
-
-Register the plugin with OpenCode (use your absolute path):
-
-```bash
+npm install && npm run build
 opencode plugin "$(pwd)" -g
 ```
 
-That writes the plugin into `~/.config/opencode/opencode.json` (or your global config). Restart OpenCode / start a new session after installing.
-
-### Jev API key (required)
-
-OpenCode often does **not** inherit your shell exports. Prefer a key file:
+**2. Add your Jev key** (OpenCode usually does not see shell `export`s)
 
 ```bash
-# one line, no quotes — chmod 600
 printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
 chmod 600 ~/.config/opencode/opencode-jev-router.key
 ```
 
-Accepted env names if you do export them into the OpenCode process: `JEV_KEY`, `JEV_API_KEY`, or `TYPESAFE_API_KEY`.
-
-### Optional router config
+**3. Optional:** copy defaults you can edit later
 
 ```bash
 cp opencode-jev-router.example.json ~/.config/opencode/opencode-jev-router.json
 ```
 
-Search order (later wins): `~/.config/opencode/` → `<project>/.opencode/` → `<project>/`.
+**4. Restart OpenCode**, then check:
 
-Project files may change aliases / routing thresholds, but **cannot** remap tier models unless the *global* config sets `"allowProjectModels": true`.
+```text
+/jev-status
+```
 
-## Use
+You want: `Jev key present; routing ON; …`
 
-1. Start OpenCode in any project: `opencode`
-2. Pick a managed Go model (e.g. DeepSeek Flash or Muse) — not a pin like `hy3`
-3. Chat normally. You should see toasts like `Routed to opencode-go/… · jev fast 98% 280ms`
-4. Check status: `/jev-status`
+## Day to day
 
-| Command | Effect |
+1. Select a Go model the router manages (DeepSeek Flash, Muse, Luna, …). Avoid one-off pins like `hy3` if you want routing.
+2. Chat as usual.
+3. Watch for a toast such as `Routed to opencode-go/muse-spark-1.3-contributor · jev fast 98% 280ms`.
+
+| Kind of ask | Typical tier | Default model |
+|---|---|---|
+| Typo, rename, “say hi” | `fast` | Muse Spark |
+| Normal feature / fix | `balanced` | DeepSeek V4.1 Flash |
+| Hard debug / design | `strong` | Luna |
+| Huge migrations | `long` | Kimi K3 (off unless you enable it) |
+
+If Jev is unreachable, your current model stays put.
+
+### Force a tier in the prompt
+
+```text
+use muse for this typo
+use strong to debug this race
+use luna
+use balanced for this endpoint
+```
+
+### Skip routing for a session
+
+- `/jev-off` — stay on whatever model you picked  
+- `/jev-on` — turn automatic routing back on  
+- Or pick an unmanaged model (e.g. `opencode-go/hy3`) to **pin**
+
+### When a model hits its Go allowance
+
+```text
+/jev-exhausted strong          # skip Luna for the default cooldown
+/jev-exhausted opencode-go/gpt-5.6-luna 8
+/jev-quota                     # what’s blocked
+/jev-reset strong              # clear that mark
+```
+
+### Inspect a decision
+
+```text
+/jev-explain
+```
+
+## Commands
+
+| Command | What it does |
 |---|---|
-| `/jev-status` | Key present?, routing on/off, DeepSeek peak/off-peak |
-| `/jev-explain` | Last routing decision |
-| `/jev-on` / `/jev-off` | Toggle automatic routing for this session |
-| `/jev-quota` | Models marked exhausted |
-| `/jev-exhausted <tier\|model> [hours]` | Manually mark exhausted |
-| `/jev-reset [model\|tier]` | Clear marks |
+| `/jev-status` | Key OK? Routing on? DeepSeek peak or off-peak? |
+| `/jev-explain` | Why the last turn chose its model |
+| `/jev-on` / `/jev-off` | Enable / disable routing this session |
+| `/jev-quota` | List exhausted models |
+| `/jev-exhausted <tier\|model> [hours]` | Mark exhausted |
+| `/jev-reset [tier\|model]` | Clear exhaustion (all if omitted) |
 
-**Pin (skip routing):** select a model that is *not* in the configured primaries/fallbacks (example: `opencode-go/hy3`). Toast: `Pinned model; Jev routing skipped`.
+## Privacy
 
-**Force a tier in the prompt:** `use strong to debug this race` / `use muse for this typo`.
+Each user turn (up to ~16 KB of text) is sent to typesafe.ai so Jev can classify the tier.
 
-## Verify it works
+## More
 
-```bash
-# unit + typecheck
-npm run check
-
-# live Jev classification only (needs key; not run in CI)
-node scripts/jev-smoke.mjs
-```
-
-Expected smoke output: trivial → `fast`, hard → `strong`.
-
-In OpenCode after install:
-
-1. `/jev-status` → `Jev key present; routing ON; …`
-2. Send `say hi` → expect Muse / fast toast
-3. Send a hard debugging ask → expect Luna / strong toast (or `/jev-explain`)
-
-## Develop
-
-```bash
-npm run check
-```
+- Go limits & peak hours: [docs/OPENCODE_GO.md](./docs/OPENCODE_GO.md)
+- Building / testing the plugin: [DEVELOPMENT.md](./DEVELOPMENT.md)
 
 ## License
 

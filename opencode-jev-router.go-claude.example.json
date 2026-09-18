@@ -23,10 +23,9 @@
     },
     "strong": {
       "model": "opencode-go/gpt-5.6-luna",
-      "aliases": ["strong", "luna", "sonnet", "opus", "codex"],
+      "aliases": ["strong", "luna", "sonnet", "opus", "claude"],
       "fallbacks": [
         "anthropic/claude-sonnet-4-20250514",
-        "openai/gpt-5.1-codex",
         "opencode-go/kimi-k2.7-code",
         "opencode-go/qwen3.7-plus"
       ]

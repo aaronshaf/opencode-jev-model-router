@@ -22,7 +22,8 @@
     "dist",
     "schemas",
     "opencode-jev-router.example.json",
-    "opencode-jev-router.go-claude-codex.example.json",
+    "opencode-jev-router.go-claude.example.json",
+    "opencode-jev-router.go-codex.example.json",
     "README.md",
     "LICENSE"
   ],

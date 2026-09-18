@@ -20,7 +20,7 @@ Or add it to `~/.config/opencode/opencode.json`:
 }
 ```
 
-Pin a version if you prefer: `"opencode-jev-model-router@0.1.2"`.
+Pin a version if you prefer: `"opencode-jev-model-router@0.1.3"`.
 
 **2. Add your Jev key** (OpenCode usually does not see shell `export`s)
 
@@ -36,8 +36,12 @@ chmod 600 ~/.config/opencode/opencode-jev-router.key
 curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.example.json \
   -o ~/.config/opencode/opencode-jev-router.json
 
-# Go + Claude + Codex (see below)
-curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-claude-codex.example.json \
+# Go + Claude (Anthropic connected via /connect)
+curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-claude.example.json \
+  -o ~/.config/opencode/opencode-jev-router.json
+
+# Go + Codex (OpenAI connected via /connect)
+curl -fsSL https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main/opencode-jev-router.go-codex.example.json \
   -o ~/.config/opencode/opencode-jev-router.json
 ```
 
@@ -53,7 +57,7 @@ You want: `Jev key present; routing ON; …`
 
 Jev chooses a **tier** (`fast` / `balanced` / `strong` / `long`). The plugin then picks the first eligible model from that tier’s `model` + `fallbacks` in the plugin config (or the built-in Go defaults if you have no config file).
 
-If your current model is **not** in that list, the turn is **pinned** — no routing. So Claude/Codex only participate after you add them to a tier (or use the example above).
+If your current model is **not** in that list, the turn is **pinned** — no routing. So Claude or Codex only participate after you add them to a tier (or use an example above).
 
 ## Day to day
 
@@ -72,9 +76,14 @@ If Jev is unreachable, your current model stays put.
 
 ### Also using Claude or Codex?
 
-Connect them in OpenCode (`/connect`), then use a config that lists those models under a tier — e.g. [opencode-jev-router.go-claude-codex.example.json](./opencode-jev-router.go-claude-codex.example.json): Go stays primary for fast/balanced; `strong` falls back to Sonnet then Codex if Luna is unavailable.
+Connect the provider in OpenCode (`/connect`), then pick **one** example — most people use Claude *or* Codex, not both:
 
-Adjust the `anthropic/…` and `openai/…` IDs to whatever `/models` shows for your account.
+| Setup | Example config |
+|---|---|
+| Go + Claude | [opencode-jev-router.go-claude.example.json](./opencode-jev-router.go-claude.example.json) |
+| Go + Codex | [opencode-jev-router.go-codex.example.json](./opencode-jev-router.go-codex.example.json) |
+
+Both keep Go for fast/balanced; `strong` falls back to Sonnet or Codex if Luna is unavailable. Adjust the `anthropic/…` or `openai/…` ID to whatever `/models` shows for your account.
 
 ### Force a tier in the prompt
 

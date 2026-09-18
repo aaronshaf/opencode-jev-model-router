@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege — never pull_request_target; never secrets on PRs.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Isolate home/state
+        run: |
+          echo "HOME=${RUNNER_TEMP}/home" >> "$GITHUB_ENV"
+          echo "XDG_STATE_HOME=${RUNNER_TEMP}/state" >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/home" "${RUNNER_TEMP}/state"
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Check
+        run: npm run check
+
+      - name: Pack dry-run
+        run: |
+          tarball=$(npm pack --dry-run --json | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s); const files=j[0].files.map(f=>f.path); if(!files.includes('dist/index.js')){console.error('dist/index.js missing from pack'); process.exit(1)}; console.log('pack ok', files.length, 'files')})")

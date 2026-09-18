@@ -1,0 +1,61 @@
+{
+  "name": "opencode-jev-model-router",
+  "version": "0.1.0",
+  "description": "Jev-based automatic per-turn model routing for OpenCode",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaronshaf/opencode-jev-model-router.git"
+  },
+  "homepage": "https://github.com/aaronshaf/opencode-jev-model-router#readme",
+  "bugs": "https://github.com/aaronshaf/opencode-jev-model-router/issues",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "opencode-jev-router.example.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check"
+  },
+  "keywords": [
+    "opencode",
+    "jev",
+    "typesafe",
+    "model-routing",
+    "plugin"
+  ],
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.31",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
+  }
+}

@@ -117,8 +117,7 @@ test("chat.message mutates on explicit override", async () => {
   });
 });
 
-test("chat.message fails open without swapping during peak", async () => {
-  // Peak window (Mon 07:00 UTC) would prefer Muse for balanced — must not swap.
+test("chat.message sticks to cheap parent during peak when Jev is down", async () => {
   const peak = () => Date.UTC(2026, 8, 14, 7, 0, 0);
   const hooks = await createHooks(pluginInput(), (() => {
     const c = defaultConfig();
@@ -150,7 +149,7 @@ test("chat.message fails open without swapping during peak", async () => {
   await hooks["chat.message"]({ sessionID: "s2" }, output);
   assert.deepEqual(output.message.model, {
     providerID: "opencode-go",
-    modelID: "deepseek-v4.1-flash",
+    modelID: "muse-spark-1.3-contributor",
   });
 });
 
@@ -253,7 +252,7 @@ test("chat.message uses fallback when primary is exhausted", async () => {
   const dir = mkdtempSync(join(tmpdir(), "jev-hook-quota-"));
   const quota = new QuotaStore({ dir, now: OFF_PEAK });
   quota.mark(
-    "opencode-go/deepseek-v4.1-flash",
+    "opencode-go/mimo-v2.5",
     OFF_PEAK() + 60 * 60 * 1000,
     "manual",
     OFF_PEAK(),
@@ -266,7 +265,7 @@ test("chat.message uses fallback when primary is exhausted", async () => {
       sessionID: "s7",
       role: "user",
       agent: "build",
-      model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+      model: { providerID: "opencode-go", modelID: "mimo-v2.5" },
       time: { created: Date.now() },
     },
     parts: [{ type: "text", text: "use balanced for this endpoint" }],
@@ -279,7 +278,7 @@ test("chat.message uses fallback when primary is exhausted", async () => {
   });
 });
 
-test("chat.message applies Jev strong choice", async () => {
+test("chat.message keeps sticky parent on Jev strong and hints escalate", async () => {
   let asked = 0;
   const hooks = await hooksBase({
     askJev: async () => {
@@ -312,8 +311,13 @@ test("chat.message applies Jev strong choice", async () => {
   assert.equal(asked, 1);
   assert.deepEqual(output.message.model, {
     providerID: "opencode-go",
-    modelID: "gpt-5.6-luna",
+    modelID: "muse-spark-1.3-contributor",
   });
+  assert.ok(
+    output.parts.some(
+      (p) => p.type === "text" && String(p.text).includes("jev_escalate"),
+    ),
+  );
 });
 
 test("explicit override skips calling Jev", async () => {
@@ -407,7 +411,7 @@ test("unknown catalog model is never applied", async () => {
       sessionID: "s8",
       role: "user",
       agent: "build",
-      model: { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" },
+      model: { providerID: "opencode-go", modelID: "muse-spark-1.3-contributor" },
       time: { created: Date.now() },
     },
     parts: [{ type: "text", text: "use strong" }],
@@ -415,7 +419,8 @@ test("unknown catalog model is never applied", async () => {
 
   await hooks["chat.message"]({ sessionID: "s8" }, output);
   assert.notEqual(output.message.model.modelID, "does-not-exist");
-  assert.equal(output.message.model.modelID, "deepseek-v4.1-flash");
+  // Override aimed at strong; missing catalog entry clamps down (balanced → MiMo).
+  assert.equal(output.message.model.modelID, "mimo-v2.5");
 });
 
 test("catalog unavailable does not mutate", async () => {

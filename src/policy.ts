@@ -1,5 +1,8 @@
 import type {
+  ActionDecision,
   JevAnswer,
+  OrchestrationAction,
+  OrchestrationConfig,
   PolicyDecision,
   RouterConfig,
   Tier,
@@ -46,6 +49,21 @@ export function detectOverride(
   return hit ? hit.tier : null;
 }
 
+/** User asked for parallel mechanical work. */
+export function detectParallelIntent(prompt: string | undefined | null): boolean {
+  return /\b(?:in parallel|parallelize|jev_parallel|spawn (?:a )?(?:cheap |fast )?subagents?)\b/i.test(
+    prompt ?? "",
+  );
+}
+
+function cheaperTier(a: Tier, b: Tier): Tier {
+  return rankOf(a) <= rankOf(b) ? a : b;
+}
+
+function dearerTier(a: Tier, b: Tier): Tier {
+  return rankOf(a) >= rankOf(b) ? a : b;
+}
+
 /**
  * Nearest runnable tier.
  * - If the tier is config-available but not eligible (quota), step **down**.
@@ -89,8 +107,8 @@ export type DecideInput = {
 };
 
 /**
- * Turns a Jev answer into the tier we will actually run. Pure and total: any
- * missing, malformed, or unavailable input falls back to the model already in use.
+ * Turns a Jev answer into the tier we will actually run.
+ * Kept for override escape hatch and legacy tests; subagent mode uses decideAction.
  */
 export function decide(input: DecideInput): PolicyDecision {
   const {
@@ -132,29 +150,161 @@ export function decide(input: DecideInput): PolicyDecision {
     return { tier: current, reason: "quota-exhausted/no-change", changed: false };
   }
 
-  if (!jev || !isTier(jev.choice)) return settle(current, "jev-unavailable");
+  const ceiling = thresholds.uncertainCeiling;
 
-  let target: Tier = jev.choice;
-
-  if (jev.confidence < thresholds.minimumConfidence) {
-    if (rankOf(target) < rankOf(current)) {
-      return settle(current, "low-confidence-no-downgrade");
-    }
-    const ceiling = Math.max(
-      rankOf(current),
-      rankOf(thresholds.uncertainCeiling),
-    );
-    if (rankOf(target) > ceiling) {
-      return settle(TIER_NAMES[ceiling]!, "low-confidence-capped");
-    }
+  // Jev down → hold current (cache-safe).
+  if (!jev || !isTier(jev.choice)) {
+    return settle(current, "jev-unavailable");
   }
 
+  let target: Tier = jev.choice;
+  let reason = "jev";
+
+  if (jev.confidence < thresholds.minimumConfidence) {
+    target = cheaperTier(dearerTier(target, current), ceiling);
+    reason = "low-confidence";
+  } else if (rankOf(target) < rankOf(current) - 1) {
+    target = TIER_NAMES[rankOf(current) - 1]!;
+    reason = "jev+step-down";
+  }
+
+  const stick = thresholds.downgradeMaxContextTokens ?? null;
   if (
+    stick != null &&
+    Number.isFinite(stick) &&
+    stick > 0 &&
     rankOf(target) < rankOf(current) &&
-    contextTokens > thresholds.downgradeMaxContextTokens
+    contextTokens > stick
   ) {
     return settle(current, "downgrade-not-worth-cache-rebuild");
   }
 
-  return settle(target, "jev");
+  return settle(target, reason);
+}
+
+export type DecideActionInput = {
+  prompt: string;
+  jev: JevAnswer | null;
+  parentTier: Tier;
+  hasStrongStreak: boolean;
+  orchestration: Pick<OrchestrationConfig, "parentTier" | "escalateOn">;
+  overridePatterns: OverridePattern[];
+  thresholds: Pick<RouterConfig["routing"], "minimumConfidence">;
+};
+
+/**
+ * Sticky-parent orchestration: stay on cheap parent, or hint escalate/parallel tools.
+ * Jev unavailable → stay (hold). Strong streak ends only when Jev says easy again.
+ */
+export function decideAction(input: DecideActionInput): ActionDecision {
+  const {
+    prompt,
+    jev,
+    hasStrongStreak,
+    orchestration,
+    overridePatterns,
+    thresholds,
+  } = input;
+
+  const sticky = orchestration.parentTier;
+  const override = detectOverride(prompt, overridePatterns);
+  if (override) {
+    return {
+      parentTier: sticky,
+      action: "stay",
+      reason: "override",
+      overrideTier: override,
+    };
+  }
+
+  if (detectParallelIntent(prompt)) {
+    return {
+      parentTier: sticky,
+      action: "parallel",
+      reason: "parallel-intent",
+    };
+  }
+
+  const easy = (tier: Tier) => !orchestration.escalateOn.includes(tier);
+
+  if (hasStrongStreak) {
+    if (
+      jev &&
+      isTier(jev.choice) &&
+      jev.confidence >= thresholds.minimumConfidence
+    ) {
+      if (easy(jev.choice)) {
+        return {
+          parentTier: sticky,
+          action: "release",
+          reason: "jev-easy-again",
+        };
+      }
+      return {
+        parentTier: sticky,
+        action: "escalate",
+        reason: "streak-continue",
+      };
+    }
+    // Unsure / Jev down: release (don't keep burning Luna).
+    return {
+      parentTier: sticky,
+      action: "release",
+      reason: !jev ? "streak-release-jev-down" : "streak-release-low-confidence",
+    };
+  }
+
+  if (!jev || !isTier(jev.choice)) {
+    return {
+      parentTier: sticky,
+      action: "stay",
+      reason: "jev-unavailable",
+    };
+  }
+
+  if (jev.confidence < thresholds.minimumConfidence) {
+    return {
+      parentTier: sticky,
+      action: "stay",
+      reason: "low-confidence",
+    };
+  }
+
+  if (orchestration.escalateOn.includes(jev.choice)) {
+    return {
+      parentTier: sticky,
+      action: "escalate",
+      reason: "jev-escalate",
+    };
+  }
+
+  return {
+    parentTier: sticky,
+    action: "stay",
+    reason: "jev-stay",
+  };
+}
+
+export function actionHint(
+  action: OrchestrationAction,
+  userPrompt: string,
+): string | null {
+  const clipped =
+    userPrompt.length > 500 ? `${userPrompt.slice(0, 500)}…` : userPrompt;
+  if (action === "escalate") {
+    return [
+      "[Jev] This turn looks hard. Call the jev_escalate tool with the user's task",
+      "(parent context is attached automatically). Do not try to solve it alone",
+      "on this cheap parent model.",
+      `Task: ${clipped}`,
+    ].join(" ");
+  }
+  if (action === "parallel") {
+    return [
+      "[Jev] Parallel mechanical work requested. Call jev_parallel (up to 3 children)",
+      "for each independent subtask, then merge results.",
+      `Task: ${clipped}`,
+    ].join(" ");
+  }
+  return null;
 }

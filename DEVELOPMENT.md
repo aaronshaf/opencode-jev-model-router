@@ -1,75 +1,50 @@
 # Development
 
-Contributor notes for `opencode-jev-model-router`. Users: see [README.md](./README.md).
+Contributor notes for `opencode-jev-orchestrator`. Users: see [README.md](./README.md).
 
 ## Local setup
 
-For hacking on the plugin itself (users should install from npm — see [README](./README.md)):
-
 ```bash
-git clone https://github.com/aaronshaf/opencode-jev-model-router.git
-cd opencode-jev-model-router
+git clone https://github.com/aaronshaf/opencode-jev-orchestrator.git
+cd opencode-jev-orchestrator
 npm install
 npm run build
 opencode plugin "$(pwd)" -g   # absolute path into ~/.config/opencode/opencode.json
 ```
 
-Restart OpenCode (or start a new session) after installing or rebuilding.
+Restart OpenCode after installing or rebuilding.
 
-### Jev key for local OpenCode
-
-OpenCode often does not inherit shell exports. Prefer:
+### Jev key
 
 ```bash
-printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
-chmod 600 ~/.config/opencode/opencode-jev-router.key
+printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-orchestrator.key
+chmod 600 ~/.config/opencode/opencode-jev-orchestrator.key
 ```
 
-Env names if you do inject them into the OpenCode process: `JEV_KEY`, `JEV_API_KEY`, `TYPESAFE_API_KEY`.
+Env names: `JEV_KEY`, `JEV_API_KEY`, `TYPESAFE_API_KEY`. Legacy `opencode-jev-router.key` still works.
 
 ### Optional config
 
 ```bash
-cp opencode-jev-router.example.json ~/.config/opencode/opencode-jev-router.json
+cp opencode-jev-orchestrator.example.json ~/.config/opencode/opencode-jev-orchestrator.json
 ```
 
 Search order (later wins): `~/.config/opencode/` → `<project>/.opencode/` → `<project>/`.
+Also reads legacy `opencode-jev-router.json`.
 
 Project files may change aliases / routing thresholds, but **cannot** remap tier models unless the *global* config sets `"allowProjectModels": true`.
 
 ## Scripts
 
-| Command | What |
-|---|---|
-| `npm run build` | Compile `src/` → `dist/` |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Build + `node --test test/*.test.mjs` |
-| `npm run check` | Typecheck + tests (also `prepublishOnly`) |
-| `node scripts/jev-smoke.mjs` | Live Jev classify (needs key; **not** in CI) |
-
-## Verify it works
-
 ```bash
-npm run check
-node scripts/jev-smoke.mjs   # expect trivial→fast, hard→strong
+npm run check      # typecheck + tests
+npm run build
+npm test
 ```
 
-Then in OpenCode (or `opencode run --print-logs --log-level INFO -m opencode-go/deepseek-v4.1-flash …`):
+## Architecture sketch
 
-1. `/jev-status` → `Jev key present; routing ON; …`
-2. `say hi` → Muse / `jev=fast`
-3. A hard debugging ask → Luna / `jev=strong`
-4. `use strong to …` → Luna via `override`
-
-Look for log lines like `Routed session … to opencode-go/… (jev, jev=fast@1)`.
-
-## CI
-
-PRs run `.github/workflows/ci.yml`: Node 22/24, `npm ci --ignore-scripts`, `npm run check`, `npm pack --dry-run`. No secrets, no live Jev.
-
-## Layout
-
-- `src/` — plugin (`adapter`, `jev`, `policy`, `quota`, …)
-- `test/` — unit tests (inject `askJev` / temp quota; no live network)
-- `docs/OPENCODE_GO.md` — Go quota / peak-hour notes
-- `schemas/config.schema.json` — config schema
+- Sticky Muse parent (`chat.message` + `orchestration.parentTier`)
+- Jev → `decideAction` → stay / escalate / parallel / release
+- `jev_escalate` / `jev_parallel` tools → `delegate.ts` child sessions
+- Children marked internal so the parent orchestrator does not rewrite them

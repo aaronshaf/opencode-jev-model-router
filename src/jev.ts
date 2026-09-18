@@ -24,8 +24,12 @@ export function resolveApiKey(
   if (cachedKey && !opts.configDir) return cachedKey;
 
   const configDir = opts.configDir ?? join(homedir(), ".config", "opencode");
-  const keyFile = join(configDir, "opencode-jev-router.key");
-  if (existsSync(keyFile)) {
+  for (const name of [
+    "opencode-jev-orchestrator.key",
+    "opencode-jev-router.key", // legacy
+  ]) {
+    const keyFile = join(configDir, name);
+    if (!existsSync(keyFile)) continue;
     try {
       const raw = readFileSync(keyFile, "utf8").trim();
       if (raw && !raw.includes("\n")) {
@@ -140,7 +144,9 @@ export async function askJev(
   try {
     const apiKey = (deps.resolveKey ?? (() => resolveApiKey()))();
     if (!apiKey) {
-      return fail("Jev API key missing (set JEV_KEY or ~/.config/opencode/opencode-jev-router.key)");
+      return fail(
+        "Jev API key missing (set JEV_KEY or ~/.config/opencode/opencode-jev-orchestrator.key)",
+      );
     }
 
     const systemOne =

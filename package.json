@@ -1,15 +1,15 @@
 {
-  "name": "opencode-jev-model-router",
-  "version": "0.1.4",
-  "description": "Jev-based automatic per-turn model routing for OpenCode",
+  "name": "opencode-jev-orchestrator",
+  "version": "0.2.0",
+  "description": "Sticky cheap parent + Jev-gated subagents for OpenCode (Go quota stewardship)",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aaronshaf/opencode-jev-model-router.git"
+    "url": "git+https://github.com/aaronshaf/opencode-jev-orchestrator.git"
   },
-  "homepage": "https://github.com/aaronshaf/opencode-jev-model-router#readme",
-  "bugs": "https://github.com/aaronshaf/opencode-jev-model-router/issues",
+  "homepage": "https://github.com/aaronshaf/opencode-jev-orchestrator#readme",
+  "bugs": "https://github.com/aaronshaf/opencode-jev-orchestrator/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -21,11 +21,11 @@
   "files": [
     "dist",
     "schemas",
-    "opencode-jev-router.example.json",
-    "opencode-jev-router.go-claude.example.json",
-    "opencode-jev-router.go-codex.example.json",
-    "opencode-jev-router.claude.example.json",
-    "opencode-jev-router.codex.example.json",
+    "opencode-jev-orchestrator.example.json",
+    "opencode-jev-orchestrator.go-claude.example.json",
+    "opencode-jev-orchestrator.go-codex.example.json",
+    "opencode-jev-orchestrator.claude.example.json",
+    "opencode-jev-orchestrator.codex.example.json",
     "README.md",
     "LICENSE"
   ],
@@ -43,7 +43,8 @@
     "opencode",
     "jev",
     "typesafe",
-    "model-routing",
+    "orchestrator",
+    "subagents",
     "plugin"
   ],
   "dependencies": {

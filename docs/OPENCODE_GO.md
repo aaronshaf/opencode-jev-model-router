@@ -31,15 +31,17 @@ Peak (≈2× token $): Mon–Fri UTC **01:00–04:00** and **06:00–10:00**. El
 
 US Mountain (UTC−6): peak ≈ 7pm–10pm and midnight–4am → daytime work is usually off-peak.
 
-Router: during peak, try Muse/MiMo before DeepSeek. `/jev-status` shows the current period.
+Orchestrator: during peak, try Muse/MiMo before DeepSeek. `/jev-status` shows the current period.
 
 ## Plugin defaults
 
-| Tier | Primary |
-|---|---|
-| `fast` | Muse Spark |
-| `balanced` | DeepSeek V4.1 Flash (Muse/MiMo fallbacks) |
-| `strong` | Luna |
-| `long` | Kimi K3 (disabled) |
+| Tier | Primary | Role |
+|---|---|---|
+| `fast` | Muse Spark | **Sticky parent** + parallel children (training use / limited regions OK) |
+| `balanced` | MiMo V2.5 | Mid tier / fallbacks |
+| `strong` | Luna | Escalation child only (`jev_escalate`); fall back to Kimi/Qwen if exhausted |
+| `long` | Kimi K3 (disabled) | Opt-in escalate target |
 
-Never substitute a drained $60 model upward into a $15 bucket.
+Parent never mutates onto Luna. Hard turns spawn a child with near-full context (resumes = delta only); results merge via the tool return. Strong children resume until Jev confidently says easy (or Jev is down/unsure → release). Max 3 **concurrent** children (finished parallel kids free the slot).
+
+Orchestration defaults: `parentTier: fast`, `maxConcurrentChildren: 3`, `escalateOn: [strong, long]`.

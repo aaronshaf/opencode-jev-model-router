@@ -14,11 +14,11 @@ const server: Plugin = async (input) => {
     const message =
       error instanceof Error
         ? error.message
-        : "Invalid Jev router configuration";
+        : "Invalid Jev orchestrator configuration";
     try {
       await input.client.app.log({
         body: {
-          service: "opencode-jev-router",
+          service: "opencode-jev-orchestrator",
           level: "error",
           message,
         },
@@ -32,6 +32,6 @@ const server: Plugin = async (input) => {
 };
 
 export default {
-  id: "opencode-jev-model-router",
+  id: "opencode-jev-orchestrator",
   server,
 } satisfies PluginModule;

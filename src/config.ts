@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { choice, score } from "@typesafe-ai/sdk";
-import type { RouterConfig, Tier, TierConfig } from "./types.js";
+import type {
+  OrchestrationConfig,
+  RouterConfig,
+  Tier,
+  TierConfig,
+} from "./types.js";
 import { TIER_NAMES } from "./types.js";
 
 const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"]);
@@ -116,17 +121,16 @@ const DEFAULT_TIERS: Record<Tier, TierConfig> = {
     model: "opencode-go/muse-spark-1.3-contributor",
     aliases: ["fast", "flash", "muse"],
     fallbacks: [
-      "opencode-go/mimo-v2.5",
-      "opencode-go/deepseek-v4.1-flash",
       "opencode-go/glm-5.3-flash",
+      "opencode-go/mimo-v2.5",
     ],
   },
   balanced: {
-    model: "opencode-go/deepseek-v4.1-flash",
+    model: "opencode-go/mimo-v2.5",
     aliases: ["balanced"],
     fallbacks: [
       "opencode-go/muse-spark-1.3-contributor",
-      "opencode-go/mimo-v2.5",
+      "opencode-go/deepseek-v4.1-flash",
       "opencode-go/qwen3.7-plus",
     ],
   },
@@ -156,7 +160,17 @@ export function defaultConfig(): RouterConfig {
       maxRetries: 1,
       minimumConfidence: 0.3,
       uncertainCeiling: "balanced",
-      downgradeMaxContextTokens: 20_000,
+      // Off by default: Go $ buckets are per-model; staying on Luna is costlier.
+      downgradeMaxContextTokens: null,
+    },
+    orchestration: {
+      mode: "subagents",
+      // Muse: fattest $60 bucket; OK with training/region tradeoffs for sticky parent.
+      parentTier: "fast",
+      maxConcurrentChildren: 3,
+      escalateOn: ["strong", "long"],
+      delegateMaxContextBytes: 200_000,
+      childTimeoutMs: 300_000,
     },
     quota: {
       cooldownHours: 5,
@@ -283,7 +297,6 @@ export function parseConfig(raw: unknown): RouterConfig {
       timeoutMs: [200, 10_000],
       deadlineMs: [200, 15_000],
       maxRetries: [0, 3],
-      downgradeMaxContextTokens: [0, 10_000_000],
       minimumConfidence: [0, 1],
     } as const;
     for (const [key, [min, max]] of Object.entries(numbers)) {
@@ -294,6 +307,19 @@ export function parseConfig(raw: unknown): RouterConfig {
       }
       assertInRange(`routing.${key}`, value, min, max);
       (routing as Record<string, unknown>)[key] = value;
+    }
+    if (hasOwn(r, "downgradeMaxContextTokens")) {
+      const value = r.downgradeMaxContextTokens;
+      if (value === null) {
+        routing.downgradeMaxContextTokens = null;
+      } else if (typeof value === "number" && Number.isFinite(value)) {
+        assertInRange("routing.downgradeMaxContextTokens", value, 1, 10_000_000);
+        routing.downgradeMaxContextTokens = value;
+      } else {
+        throw new Error(
+          "routing.downgradeMaxContextTokens must be a positive number or null",
+        );
+      }
     }
     if (hasOwn(r, "failOpen") && typeof r.failOpen === "boolean") {
       routing.failOpen = r.failOpen;
@@ -306,6 +332,78 @@ export function parseConfig(raw: unknown): RouterConfig {
         throw new Error("routing.uncertainCeiling must be a known tier");
       }
       routing.uncertainCeiling = r.uncertainCeiling as Tier;
+    }
+  }
+
+  const orchestration: OrchestrationConfig = { ...base.orchestration };
+  if (hasOwn(raw, "orchestration")) {
+    if (!isPlainObject(raw.orchestration)) {
+      throw new Error("orchestration must be an object");
+    }
+    const o = raw.orchestration;
+    if (hasOwn(o, "mode")) {
+      if (o.mode !== "subagents") {
+        throw new Error('orchestration.mode must be "subagents"');
+      }
+      orchestration.mode = "subagents";
+    }
+    if (hasOwn(o, "parentTier")) {
+      if (
+        typeof o.parentTier !== "string" ||
+        !(TIER_NAMES as readonly string[]).includes(o.parentTier)
+      ) {
+        throw new Error("orchestration.parentTier must be a known tier");
+      }
+      orchestration.parentTier = o.parentTier as Tier;
+    }
+    if (hasOwn(o, "maxConcurrentChildren")) {
+      if (
+        typeof o.maxConcurrentChildren !== "number" ||
+        !Number.isFinite(o.maxConcurrentChildren)
+      ) {
+        throw new Error("orchestration.maxConcurrentChildren must be a number");
+      }
+      assertInRange("orchestration.maxConcurrentChildren", o.maxConcurrentChildren, 1, 10);
+      orchestration.maxConcurrentChildren = o.maxConcurrentChildren;
+    }
+    if (hasOwn(o, "escalateOn")) {
+      if (!Array.isArray(o.escalateOn)) {
+        throw new Error("orchestration.escalateOn must be an array of tiers");
+      }
+      orchestration.escalateOn = o.escalateOn.map((item, i) => {
+        if (
+          typeof item !== "string" ||
+          !(TIER_NAMES as readonly string[]).includes(item)
+        ) {
+          throw new Error(`orchestration.escalateOn[${i}] must be a known tier`);
+        }
+        return item as Tier;
+      });
+    }
+    if (hasOwn(o, "delegateMaxContextBytes")) {
+      if (
+        typeof o.delegateMaxContextBytes !== "number" ||
+        !Number.isFinite(o.delegateMaxContextBytes)
+      ) {
+        throw new Error("orchestration.delegateMaxContextBytes must be a number");
+      }
+      assertInRange(
+        "orchestration.delegateMaxContextBytes",
+        o.delegateMaxContextBytes,
+        1024,
+        2_000_000,
+      );
+      orchestration.delegateMaxContextBytes = o.delegateMaxContextBytes;
+    }
+    if (hasOwn(o, "childTimeoutMs")) {
+      if (
+        typeof o.childTimeoutMs !== "number" ||
+        !Number.isFinite(o.childTimeoutMs)
+      ) {
+        throw new Error("orchestration.childTimeoutMs must be a number");
+      }
+      assertInRange("orchestration.childTimeoutMs", o.childTimeoutMs, 5_000, 3_600_000);
+      orchestration.childTimeoutMs = o.childTimeoutMs;
     }
   }
 
@@ -353,6 +451,7 @@ export function parseConfig(raw: unknown): RouterConfig {
         : base.allowProjectModels,
     tiers,
     routing,
+    orchestration,
     quota,
     history,
     echoRouting:
@@ -397,22 +496,26 @@ function sanitizeProjectOverlay(
 }
 
 /**
- * Load router config. Later files override earlier ones.
+ * Load orchestrator config. Later files override earlier ones.
  * Search: defaults → ~/.config/opencode → project .opencode → project root.
- * Only `.json` files (comments in `.jsonc` would silently disable the plugin).
+ * Prefers `opencode-jev-orchestrator.json`; also reads legacy `opencode-jev-router.json`.
  */
 export async function loadConfig(
   directory: string,
   opts: { homedir?: string } = {},
 ): Promise<RouterConfig> {
   const home = opts.homedir ?? homedir();
-  const globalPaths = [
-    join(home, ".config", "opencode", "opencode-jev-router.json"),
+  const names = [
+    "opencode-jev-orchestrator.json",
+    "opencode-jev-router.json", // legacy
   ];
-  const projectPaths = [
-    join(directory, ".opencode", "opencode-jev-router.json"),
-    join(directory, "opencode-jev-router.json"),
-  ];
+  const globalPaths = names.map((n) =>
+    join(home, ".config", "opencode", n),
+  );
+  const projectPaths = names.flatMap((n) => [
+    join(directory, ".opencode", n),
+    join(directory, n),
+  ]);
 
   let merged: Record<string, unknown> = Object.create(null);
   for (const path of globalPaths) {

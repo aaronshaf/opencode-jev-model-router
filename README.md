@@ -1,148 +1,91 @@
-# opencode-jev-model-router
+# opencode-jev-orchestrator
 
-Automatic per-turn model picking for [OpenCode](https://opencode.ai), powered by [Jev](https://typesafe.ai). Built for **[OpenCode Go](https://opencode.ai/docs/go/)**: easy turns burn generous models; hard turns get Luna.
+Keeps your OpenCode session on a cheap sticky model so the cache stays warm, and only burns scarce models like Luna in temporary child subagents when Jev flags a hard turn.
 
-[npm](https://www.npmjs.com/package/opencode-jev-model-router) · [GitHub](https://github.com/aaronshaf/opencode-jev-model-router)
+Built for **[OpenCode Go](https://opencode.ai/docs/go/)** · powered by [Jev](https://typesafe.ai)
+
+[npm](https://www.npmjs.com/package/opencode-jev-orchestrator) · [GitHub](https://github.com/aaronshaf/opencode-jev-orchestrator)
 
 ## Quick start
 
-**1. Install the plugin**
+**1. Install**
 
 ```bash
-opencode plugin opencode-jev-model-router -g
+opencode plugin opencode-jev-orchestrator -g
 ```
 
-Or add it to `~/.config/opencode/opencode.json`:
+Or in `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "plugin": ["opencode-jev-model-router"]
+  "plugin": ["opencode-jev-orchestrator"]
 }
 ```
 
-Pin a version if you prefer: `"opencode-jev-model-router@0.1.4"`.
+Pin: `"opencode-jev-orchestrator@0.2.0"`.
 
-**2. Add your Jev key** (OpenCode usually does not see shell `export`s)
-
-```bash
-printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-router.key
-chmod 600 ~/.config/opencode/opencode-jev-router.key
-```
-
-**3. Optional config** — built-in defaults are **OpenCode Go only**. Pick an example that matches how you use OpenCode:
+**2. Jev key** (OpenCode often misses shell exports)
 
 ```bash
-BASE=https://raw.githubusercontent.com/aaronshaf/opencode-jev-model-router/main
-DEST=~/.config/opencode/opencode-jev-router.json
-
-# Go only (same as built-in defaults)
-curl -fsSL "$BASE/opencode-jev-router.example.json" -o "$DEST"
-
-# Go + Claude
-curl -fsSL "$BASE/opencode-jev-router.go-claude.example.json" -o "$DEST"
-
-# Go + Codex
-curl -fsSL "$BASE/opencode-jev-router.go-codex.example.json" -o "$DEST"
-
-# Claude only (no Go)
-curl -fsSL "$BASE/opencode-jev-router.claude.example.json" -o "$DEST"
-
-# Codex / OpenAI only (no Go)
-curl -fsSL "$BASE/opencode-jev-router.codex.example.json" -o "$DEST"
+printf '%s\n' "$JEV_KEY" > ~/.config/opencode/opencode-jev-orchestrator.key
+chmod 600 ~/.config/opencode/opencode-jev-orchestrator.key
 ```
 
-**4. Restart OpenCode**, then check:
+Legacy `opencode-jev-router.key` / `.json` paths are still read.
 
-```text
-/jev-status
+**3. Optional config**
+
+```bash
+BASE=https://raw.githubusercontent.com/aaronshaf/opencode-jev-orchestrator/main
+DEST=~/.config/opencode/opencode-jev-orchestrator.json
+
+curl -fsSL "$BASE/opencode-jev-orchestrator.example.json" -o "$DEST"          # Go only
+# …go-claude / go-codex / claude / codex examples also available
 ```
 
-You want: `Jev key present; routing ON; …`
+**4. Restart OpenCode** → `/jev-status` should show key present, orchestration on, sticky parent Muse.
 
-## How routing picks models
+## How it works
 
-Jev chooses a **tier** (`fast` / `balanced` / `strong` / `long`). The plugin then picks the first eligible model from that tier’s `model` + `fallbacks` in the plugin config (or the built-in Go defaults if you have no config file).
+This is an **orchestrator**, not a per-turn model switcher.
 
-If your current model is **not** in that list, the turn is **pinned** — no routing. So Claude or Codex only participate after you add them to a tier (or use an example above).
+1. **Sticky parent** — managed turns stay on Muse Spark (`orchestration.parentTier: fast`). Cache stays warm.
+2. **Jev flags** hard / easy / unsure — it does not silently swap the parent onto Luna.
+3. **`jev_escalate`** — parent calls the tool; a strong child (Luna, with Kimi/Qwen fall back) gets near-full context; result merges via the tool return. Resumes send **delta** context only.
+4. **Strong streak** — same child continues until Jev confidently says easy (or Jev is down / unsure → release).
+5. **`jev_parallel`** — up to 3 concurrent cheap children for mechanical subtasks.
+6. **Escape** — `use luna` / unmanaged picker pins still win.
 
-## Day to day
-
-1. Start on a **managed** model (one listed in the defaults or your config). Unlisted models pin.
-2. Chat as usual.
-3. Watch for a toast such as `Routed to opencode-go/muse-spark-1.3-contributor · jev fast 98% 280ms`.
-
-| Kind of ask | Typical tier | Default model (Go) |
+| Ask | Action | Where (Go defaults) |
 |---|---|---|
-| Typo, rename, “say hi” | `fast` | Muse Spark |
-| Normal feature / fix | `balanced` | DeepSeek V4.1 Flash |
-| Hard debug / design | `strong` | Luna |
-| Huge migrations | `long` | Kimi K3 (off unless you enable it) |
-
-If Jev is unreachable, your current model stays put.
-
-### Also using Claude or Codex?
-
-Connect providers with `/connect`, then pick a config that lists those models (otherwise they **pin** and won’t route):
-
-| Setup | Example |
-|---|---|
-| Go only | [opencode-jev-router.example.json](./opencode-jev-router.example.json) (or skip config — built-in) |
-| Go + Claude | [opencode-jev-router.go-claude.example.json](./opencode-jev-router.go-claude.example.json) |
-| Go + Codex | [opencode-jev-router.go-codex.example.json](./opencode-jev-router.go-codex.example.json) |
-| Claude only | [opencode-jev-router.claude.example.json](./opencode-jev-router.claude.example.json) |
-| Codex / OpenAI only | [opencode-jev-router.codex.example.json](./opencode-jev-router.codex.example.json) |
-
-Adjust model IDs to whatever `/models` shows for your account.
-
-### Force a tier in the prompt
-
-```text
-use muse for this typo
-use strong to debug this race
-use luna
-use balanced for this endpoint
-```
-
-### Skip routing for a session
-
-- `/jev-off` — stay on whatever model you picked  
-- `/jev-on` — turn automatic routing back on  
-- Or pick an unmanaged model (not in your tier lists) to **pin**
-
-### When a model hits its Go allowance
-
-```text
-/jev-exhausted strong          # skip Luna for the default cooldown
-/jev-exhausted opencode-go/gpt-5.6-luna 8
-/jev-quota                     # what’s blocked
-/jev-reset strong              # clear that mark
-```
-
-### Inspect a decision
-
-```text
-/jev-explain
-```
+| Normal work | stay | Parent: Muse |
+| Hard debug / design | escalate | Child: Luna (fall back if exhausted) |
+| “in parallel” | parallel | Cheap children, max 3 |
 
 ## Commands
 
-| Command | What it does |
+| Command | What |
 |---|---|
-| `/jev-status` | Key OK? Routing on? DeepSeek peak or off-peak? |
-| `/jev-explain` | Why the last turn chose its model |
-| `/jev-on` / `/jev-off` | Enable / disable routing this session |
-| `/jev-quota` | List exhausted models |
+| `/jev-status` | Key? On? Sticky parent? DeepSeek peak? |
+| `/jev-explain` | Last action (stay / escalate / parallel / release) |
+| `/jev-on` / `/jev-off` | Toggle this session |
+| `/jev-quota` | Exhausted models |
 | `/jev-exhausted <tier\|model> [hours]` | Mark exhausted |
-| `/jev-reset [tier\|model]` | Clear exhaustion (all if omitted) |
+| `/jev-reset [target]` | Clear marks |
 
-## Privacy
+## Multi-provider
 
-Each user turn (up to ~16 KB of text) is sent to typesafe.ai so Jev can classify the tier.
+List Claude/Codex models in tier config or use an example file — otherwise unlisted models **pin**.
 
-## More
+## Migrating from `opencode-jev-model-router`
 
-- Go limits & peak hours: [docs/OPENCODE_GO.md](./docs/OPENCODE_GO.md)
-- Building / testing the plugin: [DEVELOPMENT.md](./DEVELOPMENT.md)
+```bash
+opencode plugin opencode-jev-orchestrator -g
+# optional: rename config/key files to opencode-jev-orchestrator.*
+# old names still load
+```
+
+Remove the old plugin entry from `opencode.json` when ready.
 
 ## License
 

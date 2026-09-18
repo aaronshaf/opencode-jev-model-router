@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isDeepSeekPeak,
   deepSeekPeriod,
@@ -8,6 +11,7 @@ import {
 } from "../dist/schedule.js";
 import { modelForTier } from "../dist/models.js";
 import { defaultConfig } from "../dist/config.js";
+import { QuotaStore } from "../dist/quota.js";
 
 test("isDeepSeekScheduledModel matches Go DeepSeek ids", () => {
   assert.equal(isDeepSeekScheduledModel("opencode-go/deepseek-v4.1-flash"), true);
@@ -48,16 +52,36 @@ test("orderCandidatesForSchedule defers DeepSeek only during peak", () => {
   assert.deepEqual(orderCandidatesForSchedule(candidates, off), candidates);
 });
 
-test("balanced prefers Muse over DeepSeek during peak", () => {
+test("balanced primary is MiMo; peak defers DeepSeek when falling back", () => {
   const peak = new Date(Date.UTC(2026, 8, 18, 7, 0, 0));
   const off = new Date(Date.UTC(2026, 8, 18, 15, 0, 0));
   const config = defaultConfig();
   assert.equal(
     modelForTier(config, "balanced", { at: peak })?.model.modelID,
-    "muse-spark-1.3-contributor",
+    "mimo-v2.5",
   );
   assert.equal(
     modelForTier(config, "balanced", { at: off })?.model.modelID,
-    "deepseek-v4.1-flash",
+    "mimo-v2.5",
+  );
+
+  const dir = mkdtempSync(join(tmpdir(), "jev-sched-"));
+  const quota = new QuotaStore({ dir, now: () => 1_000_000 });
+  quota.mark("opencode-go/mimo-v2.5", 2_000_000, "test", 1_000_000);
+  assert.equal(
+    modelForTier(config, "balanced", {
+      at: peak,
+      quota,
+      now: 1_000_000,
+    })?.model.modelID,
+    "muse-spark-1.3-contributor",
+  );
+  assert.equal(
+    modelForTier(config, "balanced", {
+      at: off,
+      quota,
+      now: 1_000_000,
+    })?.model.modelID,
+    "muse-spark-1.3-contributor",
   );
 });

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   decide,
+  decideAction,
   detectOverride,
+  detectParallelIntent,
   buildOverridePatterns,
 } from "../dist/policy.js";
 import { QUESTIONS, defaultConfig } from "../dist/config.js";
@@ -70,49 +72,61 @@ test("disabled long tier is not an override target", () => {
   assert.equal(detectOverride("use kimi", patterns), null);
 });
 
-test("keeps the current model when Jev is unreachable", () => {
-  const out = decide({ ...base, jev: null });
-  assert.equal(out.tier, "balanced");
-  assert.equal(out.changed, false);
-  assert.match(out.reason, /jev-unavailable/);
+test("jev unavailable holds the current tier", () => {
+  const atBalanced = decide({ ...base, jev: null });
+  assert.equal(atBalanced.tier, "balanced");
+  assert.match(atBalanced.reason, /jev-unavailable/);
+
+  const fromStrong = decide({ ...base, current: "strong", jev: null });
+  assert.equal(fromStrong.tier, "strong");
+  assert.equal(fromStrong.changed, false);
 });
 
 test("ignores a tier name Jev invented", () => {
   assert.equal(decide({ ...base, jev: sure("gpt-9") }).tier, "balanced");
 });
 
-test("never downgrades on a low-confidence answer", () => {
-  const out = decide({ ...base, jev: unsure("fast") });
-  assert.equal(out.tier, "balanced");
-  assert.match(out.reason, /low-confidence-no-downgrade/);
-});
+test("low-confidence clamps between current and ceiling", () => {
+  const down = decide({ ...base, current: "strong", jev: unsure("fast") });
+  assert.equal(down.tier, "balanced");
+  assert.match(down.reason, /low-confidence/);
 
-test("caps a low-confidence upgrade at the safe ceiling", () => {
-  const out = decide({ ...base, current: "fast", jev: unsure("long") });
-  assert.equal(out.tier, "balanced");
-  assert.equal(out.reason, "low-confidence-capped");
+  const up = decide({ ...base, current: "fast", jev: unsure("long") });
+  assert.equal(up.tier, "balanced");
+  assert.match(up.reason, /low-confidence/);
 });
 
 test("still allows a confident upgrade to long", () => {
   assert.equal(decide({ ...base, jev: sure("long") }).tier, "long");
 });
 
-test("refuses a downgrade once the cache rebuild costs more than it saves", () => {
+test("steps down at most one tier per turn", () => {
   const out = decide({
     ...base,
     current: "strong",
     jev: sure("fast"),
+  });
+  assert.equal(out.tier, "balanced");
+  assert.match(out.reason, /step-down/);
+});
+
+test("allows a single-tier confident downgrade", () => {
+  assert.equal(
+    decide({ ...base, current: "strong", jev: sure("balanced") }).tier,
+    "balanced",
+  );
+});
+
+test("optional cache stickiness when configured", () => {
+  const out = decide({
+    ...base,
+    current: "strong",
+    jev: sure("balanced"),
     contextTokens: 80_000,
+    thresholds: { ...thresholds, downgradeMaxContextTokens: 20_000 },
   });
   assert.equal(out.tier, "strong");
   assert.match(out.reason, /cache-rebuild/);
-});
-
-test("allows the same downgrade early in a conversation", () => {
-  assert.equal(
-    decide({ ...base, current: "strong", jev: sure("fast") }).tier,
-    "fast",
-  );
 });
 
 test("substitutes upward when the chosen tier is config-unavailable", () => {
@@ -148,4 +162,75 @@ test("never substitutes upward into opt-in long", () => {
     jev: sure("strong"),
   });
   assert.equal(out.tier, "fast");
+});
+
+test("decideAction escalates on strong and releases streak when easy", () => {
+  const orch = config.orchestration;
+  const escalate = decideAction({
+    prompt: "debug the race",
+    jev: sure("strong"),
+    parentTier: "fast",
+    hasStrongStreak: false,
+    orchestration: orch,
+    overridePatterns: patterns,
+    thresholds: config.routing,
+  });
+  assert.equal(escalate.action, "escalate");
+  assert.equal(escalate.parentTier, "fast");
+
+  const release = decideAction({
+    prompt: "fix the typo",
+    jev: sure("fast"),
+    parentTier: "fast",
+    hasStrongStreak: true,
+    orchestration: orch,
+    overridePatterns: patterns,
+    thresholds: config.routing,
+  });
+  assert.equal(release.action, "release");
+});
+
+test("decideAction holds sticky parent when Jev is down", () => {
+  const out = decideAction({
+    prompt: "implement the endpoint",
+    jev: null,
+    parentTier: "fast",
+    hasStrongStreak: false,
+    orchestration: config.orchestration,
+    overridePatterns: patterns,
+    thresholds: config.routing,
+  });
+  assert.equal(out.action, "stay");
+  assert.match(out.reason, /jev-unavailable/);
+});
+
+test("decideAction releases streak when Jev is down or unsure", () => {
+  const orch = config.orchestration;
+  const down = decideAction({
+    prompt: "still going",
+    jev: null,
+    parentTier: "fast",
+    hasStrongStreak: true,
+    orchestration: orch,
+    overridePatterns: patterns,
+    thresholds: config.routing,
+  });
+  assert.equal(down.action, "release");
+  assert.match(down.reason, /jev-down/);
+
+  const low = decideAction({
+    prompt: "still going",
+    jev: unsure("strong"),
+    parentTier: "fast",
+    hasStrongStreak: true,
+    orchestration: orch,
+    overridePatterns: patterns,
+    thresholds: config.routing,
+  });
+  assert.equal(low.action, "release");
+});
+
+test("detectParallelIntent matches common phrases", () => {
+  assert.equal(detectParallelIntent("do these in parallel"), true);
+  assert.equal(detectParallelIntent("rename the symbol"), false);
 });

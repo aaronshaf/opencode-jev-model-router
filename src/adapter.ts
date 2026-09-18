@@ -1,12 +1,17 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
+import { tool } from "@opencode-ai/plugin";
 import { loadConfig } from "./config.js";
+import {
+  pickEscalateModel,
+  pickParallelModel,
+  spawnOrResumeChild,
+} from "./delegate.js";
 import { askJev as defaultAskJev, resolveApiKey as defaultResolveApiKey } from "./jev.js";
 import type { AskJevDeps, AskJevInput } from "./jev.js";
 import type { JevResult } from "./types.js";
 import {
   configAvailableTiers,
   formatModelRef,
-  isEligibleCandidate,
   isManagedModel,
   modelForTier,
   parseModelRef,
@@ -14,7 +19,13 @@ import {
   tierCandidates,
   tierOfModel,
 } from "./models.js";
-import { buildOverridePatterns, decide, detectOverride } from "./policy.js";
+import {
+  actionHint,
+  buildOverridePatterns,
+  decide,
+  decideAction,
+  detectOverride,
+} from "./policy.js";
 import { extractPromptText } from "./prompt.js";
 import { QuotaStore, isQuotaError } from "./quota.js";
 import { deepSeekPeriod } from "./schedule.js";
@@ -34,6 +45,8 @@ export type HookDeps = {
     deps?: AskJevDeps,
   ) => Promise<JevResult | null>;
   resolveKey?: () => string | undefined;
+  /** Injectable for tests — skip real child wait. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 function cleanError(value: unknown): string {
@@ -112,7 +125,9 @@ export async function createHooks(
   const ask = deps.askJev ?? defaultAskJev;
   const resolveKey = deps.resolveKey ?? defaultResolveApiKey;
   const nowFn = deps.now ?? Date.now;
+  const sleep = deps.sleep;
   const overridePatterns = buildOverridePatterns(resolved.tiers);
+  const orch = resolved.orchestration;
 
   let known = deps.known;
   let catalogFailedAt = 0;
@@ -121,7 +136,7 @@ export async function createHooks(
     try {
       await Promise.race([
         input.client.tui.showToast({
-          body: { title: "Jev Router", message, variant, duration: 5000 },
+          body: { title: "Jev Orchestrator", message, variant, duration: 5000 },
         }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("toast timeout")), 2000),
@@ -138,7 +153,7 @@ export async function createHooks(
   ) => {
     try {
       await input.client.app.log({
-        body: { service: "opencode-jev-router", level, message },
+        body: { service: "opencode-jev-orchestrator", level, message },
         signal: AbortSignal.timeout(2000),
       });
     } catch {
@@ -185,25 +200,45 @@ export async function createHooks(
     return known;
   };
 
+  const selectOpts = () => ({
+    known,
+    quota,
+    now: nowFn(),
+    at: new Date(nowFn()),
+  });
+
+  const spawnDeps = () => ({
+    client: input.client,
+    sessions,
+    config: resolved,
+    directory: input.directory,
+    known,
+    quota,
+    now: nowFn(),
+    log: (message: string, level: "info" | "warn" | "error" = "info") =>
+      log(message, level),
+    ...(sleep ? { sleep } : {}),
+  });
+
   return {
     config: async (cfg) => {
       cfg.command = {
         ...cfg.command,
         "jev-on": {
           template: "jev-on",
-          description: "Enable Jev automatic model routing for this session",
+          description: "Enable Jev automatic orchestration for this session",
         },
         "jev-off": {
           template: "jev-off",
-          description: "Disable Jev automatic model routing for this session",
+          description: "Disable Jev automatic orchestration for this session",
         },
         "jev-status": {
           template: "jev-status",
-          description: "Show Jev router status for this session",
+          description: "Show Jev orchestrator status for this session",
         },
         "jev-explain": {
           template: "jev-explain",
-          description: "Explain the last Jev routing decision",
+          description: "Explain the last Jev orchestration decision",
         },
         "jev-quota": {
           template: "jev-quota",
@@ -220,6 +255,123 @@ export async function createHooks(
             "Clear exhaustion for one model or all: /jev-reset [provider/model]",
         },
       };
+    },
+
+    tool: {
+      jev_escalate: tool({
+        description:
+          "Escalate a hard task to a strong (or fallback) child subagent with near-full parent context. Resume an active strong child when one exists. Merge the returned answer into your reply.",
+        args: {
+          task: tool.schema.string().describe("Task for the strong subagent"),
+        },
+        async execute(args, ctx) {
+          const catalog = await ensureKnown();
+          if (!catalog) {
+            return {
+              title: "Escalate failed",
+              output: "Model catalog unavailable; cannot escalate.",
+            };
+          }
+          known = catalog;
+          const picked = pickEscalateModel(resolved, selectOpts());
+          if (!picked) {
+            return {
+              title: "Escalate failed",
+              output:
+                "No eligible strong models (quota exhausted). Stay on the parent model or /jev-reset.",
+            };
+          }
+          try {
+            sessions.markEscalateCalled(ctx.sessionID);
+            const existing = sessions.getActiveStrongChild(ctx.sessionID);
+            const result = await spawnOrResumeChild({
+              parentID: ctx.sessionID,
+              task: args.task,
+              model: picked.model,
+              usedFallback: picked.usedFallback,
+              existingChildId: existing,
+              strong: true,
+              deps: spawnDeps(),
+            });
+            await toast(
+              `Escalated to ${result.model}${result.resumed ? " (resumed)" : ""}${picked.usedFallback ? " via fallback" : ""} · ${result.contextMode} ${result.contextBytes}B`,
+              "success",
+            );
+            return {
+              title: `Escalated → ${result.model}`,
+              output: result.text,
+              metadata: {
+                childID: result.childID,
+                model: result.model,
+                resumed: result.resumed,
+                usedFallback: result.usedFallback,
+                contextBytes: result.contextBytes,
+                contextMode: result.contextMode,
+              },
+            };
+          } catch (error) {
+            return {
+              title: "Escalate failed",
+              output: cleanError(error),
+            };
+          }
+        },
+      }),
+
+      jev_parallel: tool({
+        description:
+          "Spawn a cheap child subagent for an independent mechanical subtask (max concurrent children enforced). Merge results yourself.",
+        args: {
+          task: tool.schema.string().describe("Independent subtask for a cheap child"),
+        },
+        async execute(args, ctx) {
+          const catalog = await ensureKnown();
+          if (!catalog) {
+            return {
+              title: "Parallel failed",
+              output: "Model catalog unavailable; cannot spawn.",
+            };
+          }
+          known = catalog;
+          if (!sessions.canSpawn(ctx.sessionID, orch.maxConcurrentChildren)) {
+            return {
+              title: "Parallel failed",
+              output: `Already at maxConcurrentChildren (${orch.maxConcurrentChildren}).`,
+            };
+          }
+          const picked = pickParallelModel(resolved, selectOpts());
+          if (!picked) {
+            return {
+              title: "Parallel failed",
+              output: "No eligible cheap models.",
+            };
+          }
+          try {
+            const result = await spawnOrResumeChild({
+              parentID: ctx.sessionID,
+              task: args.task,
+              model: picked.model,
+              usedFallback: picked.usedFallback,
+              strong: false,
+              deps: spawnDeps(),
+            });
+            await toast(`Parallel child on ${result.model}`, "success");
+            return {
+              title: `Parallel → ${result.model}`,
+              output: result.text,
+              metadata: {
+                childID: result.childID,
+                model: result.model,
+              },
+            };
+          } catch (error) {
+            return {
+              title: "Parallel failed",
+              output: cleanError(error),
+            };
+          }
+        },
+      }),
     },
 
     event: async ({ event }) => {
@@ -332,11 +484,16 @@ export async function createHooks(
         const on = sessions.isAutomatic(cmdInput.sessionID, resolved.enabled);
         const key = Boolean(resolveKey());
         const period = deepSeekPeriod(new Date(nowFn()));
+        const sticky = modelForTier(resolved, orch.parentTier, {
+          now: nowFn(),
+          at: new Date(nowFn()),
+        });
         const message = [
           key
             ? "Jev key present"
-            : "Jev key MISSING — set JEV_KEY or ~/.config/opencode/opencode-jev-router.key",
+            : "Jev key MISSING — set JEV_KEY or ~/.config/opencode/opencode-jev-orchestrator.key",
           `routing ${on ? "ON" : "OFF"}`,
+          `sticky parent ${sticky ? formatModelRef(sticky.model) : orch.parentTier}`,
           `DeepSeek ${period}`,
         ].join("; ");
         setCommandResult(output, message);
@@ -447,6 +604,7 @@ export async function createHooks(
               reason: "pinned",
               changed: false,
             },
+            action: "stay",
           });
           if (
             sessions.shouldToastPin(msgInput.sessionID) &&
@@ -460,33 +618,34 @@ export async function createHooks(
         const catalog = await ensureKnown();
         if (catalog === undefined) {
           if (resolved.echoRouting) {
-            await toast("Model catalog unavailable; keeping current", "warning");
+            await toast("Model catalog unavailable; keeping sticky parent", "warning");
           }
           return;
         }
 
         const at = new Date(nowFn());
-        const selectOpts = { known: catalog, quota, now: nowFn(), at };
-        const eligible = resolveAvailableTiers(resolved, selectOpts);
+        const opts = { known: catalog, quota, now: nowFn(), at };
+        const eligible = resolveAvailableTiers(resolved, opts);
         const configAvailable = configAvailableTiers(resolved, catalog);
         if (!eligible.length && !configAvailable.length) return;
 
-        const lastServed = sessions.getLastServed(msgInput.sessionID);
-        const current =
-          sessions.getLastTier(msgInput.sessionID) ??
-          tierOfModel(resolved, lastServed ?? incoming);
-        const contextTokens = sessions.getContextTokens(msgInput.sessionID);
+        const stickySelected = modelForTier(resolved, orch.parentTier, opts);
+        if (!stickySelected) {
+          if (resolved.echoRouting) {
+            await toast("No sticky parent model eligible; keeping current", "warning");
+          }
+          return;
+        }
 
         const override = detectOverride(prompt, overridePatterns);
         let jevError: string | undefined;
         let jev = null as Awaited<ReturnType<typeof ask>>;
-        // Skip Jev when an explicit override is present or nothing is eligible.
         if (!override && eligible.length > 0) {
           jev = await ask(
             {
               prompt,
-              current,
-              contextTokens,
+              current: orch.parentTier,
+              contextTokens: sessions.getContextTokens(msgInput.sessionID),
               available: eligible,
               routing: resolved.routing,
             },
@@ -500,114 +659,128 @@ export async function createHooks(
           );
         }
 
-        const decision = decide({
+        const hasStrongStreak = Boolean(
+          sessions.getActiveStrongChild(msgInput.sessionID),
+        );
+        const actionDecision = decideAction({
           prompt,
           jev,
-          current,
-          available: eligible,
-          configAvailable,
-          contextTokens,
+          parentTier: orch.parentTier,
+          hasStrongStreak,
+          orchestration: orch,
           overridePatterns,
           thresholds: resolved.routing,
         });
 
-        // Unchanged tier: keep the model already on the message when it is
-        // still eligible. Avoids peak-hour swaps when Jev is down.
-        if (
-          !decision.changed &&
-          isEligibleCandidate(
-            resolved,
-            decision.tier,
-            output.message.model,
-            selectOpts,
-          )
-        ) {
-          sessions.setLastTier(msgInput.sessionID, decision.tier);
+        if (actionDecision.action === "release") {
+          sessions.clearStrongStreak(msgInput.sessionID);
+        }
+
+        // Escape hatch: explicit "use luna" etc. mutates parent model.
+        if (actionDecision.overrideTier) {
+          const legacy = decide({
+            prompt,
+            jev,
+            current: orch.parentTier,
+            available: eligible,
+            configAvailable,
+            contextTokens: sessions.getContextTokens(msgInput.sessionID),
+            overridePatterns,
+            thresholds: resolved.routing,
+          });
+          const selected = modelForTier(resolved, legacy.tier, opts);
+          sessions.setLastTier(msgInput.sessionID, legacy.tier);
+          sessions.setLastJevAction(msgInput.sessionID, "stay");
           sessions.record({
             at: nowFn(),
             sessionID: msgInput.sessionID,
             prompt,
-            currentTier: current,
+            currentTier: orch.parentTier,
             jev: jev
               ? { choice: jev.choice, confidence: jev.confidence }
               : null,
             metrics: jev?.metrics,
-            decision,
-            model: formatModelRef(output.message.model),
+            decision: legacy,
+            action: "stay",
+            model: selected ? formatModelRef(selected.model) : undefined,
+            usedFallback: selected?.usedFallback,
             latencyMs: jev?.ms,
           });
-          if (!jev && !override && resolved.echoRouting) {
+          if (selected) applyModel(output.message, selected.model);
+          if (resolved.echoRouting && selected) {
             await toast(
-              jevError
-                ? `Jev unavailable (${jevError}); keeping current model`
-                : "Routing unavailable; keeping current model",
-              "warning",
+              `Override → ${formatModelRef(selected.model)} · /jev-off`,
+              "success",
             );
           }
           return;
         }
 
-        const selected = modelForTier(resolved, decision.tier, selectOpts);
-        const modelLabel = selected
-          ? formatModelRef(selected.model)
-          : undefined;
-
-        sessions.setLastTier(msgInput.sessionID, decision.tier);
+        // Sticky cheap parent — never mutate onto strong/long.
+        applyModel(output.message, stickySelected.model);
+        sessions.setLastTier(msgInput.sessionID, orch.parentTier);
+        sessions.setLastJevAction(msgInput.sessionID, actionDecision.action);
         sessions.record({
           at: nowFn(),
           sessionID: msgInput.sessionID,
           prompt,
-          currentTier: current,
+          currentTier: orch.parentTier,
           jev: jev
             ? { choice: jev.choice, confidence: jev.confidence }
             : null,
           metrics: jev?.metrics,
-          decision,
-          model: modelLabel,
-          usedFallback: selected?.usedFallback,
+          decision: {
+            tier: orch.parentTier,
+            reason: actionDecision.reason,
+            changed:
+              formatModelRef(incoming) !== formatModelRef(stickySelected.model),
+          },
+          action: actionDecision.action,
+          model: formatModelRef(stickySelected.model),
+          usedFallback: stickySelected.usedFallback,
           latencyMs: jev?.ms,
         });
 
-        if (!selected) {
-          if (resolved.echoRouting) {
-            await toast("No eligible Go models; keeping current", "warning");
-          }
-          return;
+        if (sessions.consumeEscalateMiss(msgInput.sessionID)) {
+          await log(
+            `escalate hint missed (parent did not call jev_escalate) session=${msgInput.sessionID}`,
+            "warn",
+          );
         }
 
-        const same =
-          selected.model.providerID === output.message.model.providerID &&
-          selected.model.modelID === output.message.model.modelID &&
-          (selected.model.variant ?? undefined) ===
-            ((output.message.model as { variant?: string }).variant ??
-              undefined);
+        const hint = actionHint(actionDecision.action, prompt);
+        if (hint) {
+          output.parts.push({
+            type: "text",
+            text: hint,
+            synthetic: true,
+          } as (typeof output.parts)[number]);
+          if (actionDecision.action === "escalate") {
+            sessions.markEscalateHinted(msgInput.sessionID, nowFn());
+          }
+        }
 
-        if (same) {
-          if (!jev && !override && resolved.echoRouting) {
+        if (resolved.echoRouting) {
+          if (actionDecision.action === "escalate") {
+            await toast(
+              `Sticky ${formatModelRef(stickySelected.model)}; escalate via jev_escalate`,
+              "info",
+            );
+          } else if (actionDecision.action === "parallel") {
+            await toast(
+              `Sticky ${formatModelRef(stickySelected.model)}; use jev_parallel`,
+              "info",
+            );
+          } else if (actionDecision.action === "release") {
+            await toast("Strong streak released; parent continues", "success");
+          } else if (!jev && !override) {
             await toast(
               jevError
-                ? `Jev unavailable (${jevError}); keeping current model`
-                : "Routing unavailable; keeping current model",
+                ? `Jev unavailable (${jevError}); sticky parent held`
+                : "Routing unavailable; sticky parent held",
               "warning",
             );
           }
-          return;
-        }
-
-        applyModel(output.message, selected.model);
-
-        if (resolved.echoRouting) {
-          const label = selected.model.variant
-            ? `${formatModelRef(selected.model)} (${selected.model.variant})`
-            : formatModelRef(selected.model);
-          const via = selected.usedFallback ? " via fallback" : "";
-          const why = jev
-            ? ` · jev ${decision.tier} ${Math.round(jev.confidence * 100)}% ${jev.ms}ms`
-            : ` · ${decision.reason}`;
-          await toast(`Routed to ${label}${via}${why} · /jev-off`, "success");
-          await log(
-            `Routed session ${msgInput.sessionID} to ${label} (${decision.reason}${jev ? `, jev=${jev.choice}@${jev.confidence}` : ""})`,
-          );
         }
       } catch (error) {
         if (!resolved.routing.failOpen) throw error;

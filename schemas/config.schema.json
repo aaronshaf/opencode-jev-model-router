@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/aaronshaf/opencode-jev-model-router/schemas/config.schema.json",
-  "title": "OpenCode Jev Router config",
+  "$id": "https://github.com/aaronshaf/opencode-jev-orchestrator/schemas/config.schema.json",
+  "title": "OpenCode Jev Orchestrator config",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -36,7 +36,52 @@
           "type": "string",
           "enum": ["fast", "balanced", "strong", "long"]
         },
-        "downgradeMaxContextTokens": { "type": "integer", "minimum": 0 }
+        "downgradeMaxContextTokens": {
+          "description": "If set, refuse downgrades above this context size. null/omit = off (default).",
+          "anyOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1, "maximum": 10000000 }
+          ]
+        }
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sticky cheap parent + Jev-gated subagent tools.",
+      "properties": {
+        "mode": { "type": "string", "enum": ["subagents"], "default": "subagents" },
+        "parentTier": {
+          "type": "string",
+          "enum": ["fast", "balanced", "strong", "long"],
+          "default": "fast"
+        },
+        "maxConcurrentChildren": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "escalateOn": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["fast", "balanced", "strong", "long"]
+          },
+          "default": ["strong", "long"]
+        },
+        "delegateMaxContextBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 2000000,
+          "default": 200000
+        },
+        "childTimeoutMs": {
+          "type": "integer",
+          "minimum": 5000,
+          "maximum": 3600000,
+          "default": 300000
+        }
       }
     },
     "quota": {
@@ -46,6 +91,7 @@
         "cooldownHours": { "type": "number", "minimum": 0.1, "maximum": 168 }
       }
     },
+
     "history": {
       "type": "object",
       "additionalProperties": false,

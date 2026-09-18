@@ -27,7 +27,11 @@ export type RoutingConfig = {
   maxRetries: number;
   minimumConfidence: number;
   uncertainCeiling: Tier;
-  downgradeMaxContextTokens: number;
+  /**
+   * If set (>0), refuse downgrades once context exceeds this many tokens.
+   * Default null = off (cost-first). Useful for near-parity Claude tiers.
+   */
+  downgradeMaxContextTokens: number | null;
 };
 
 export type QuotaConfig = {
@@ -41,7 +45,24 @@ export type HistoryConfig = {
   maxEntries: number;
 };
 
-export type RouterConfig = {
+/** How the parent session relates to child subagents. */
+export type OrchestrationAction = "stay" | "escalate" | "parallel" | "release";
+
+export type OrchestrationConfig = {
+  /** Sticky parent + tool-spawned children (default). */
+  mode: "subagents";
+  /** Tier whose primary model stays on the parent session. */
+  parentTier: Tier;
+  maxConcurrentChildren: number;
+  /** Jev tiers that should spawn/resume a strong child. */
+  escalateOn: Tier[];
+  /** Max chars of parent transcript forwarded to a child. */
+  delegateMaxContextBytes: number;
+  /** Max ms to wait for a child session to go idle. */
+  childTimeoutMs: number;
+};
+
+export type OrchestratorConfig = {
   enabled: boolean;
   /**
    * When true (global config only), project-level files may override tier
@@ -50,10 +71,14 @@ export type RouterConfig = {
   allowProjectModels: boolean;
   tiers: Record<Tier, TierConfig>;
   routing: RoutingConfig;
+  orchestration: OrchestrationConfig;
   quota: QuotaConfig;
   history: HistoryConfig;
   echoRouting: boolean;
 };
+
+/** @deprecated Use OrchestratorConfig */
+export type RouterConfig = OrchestratorConfig;
 
 export type JevAnswer = {
   choice: string;
@@ -76,6 +101,14 @@ export type PolicyDecision = {
   changed: boolean;
 };
 
+export type ActionDecision = {
+  parentTier: Tier;
+  action: OrchestrationAction;
+  reason: string;
+  /** Escape hatch: mutate parent onto this tier instead of sticking. */
+  overrideTier?: Tier;
+};
+
 export type DecisionRecord = {
   at: number;
   sessionID: string;
@@ -84,6 +117,7 @@ export type DecisionRecord = {
   jev: JevAnswer | null;
   metrics?: JevResult["metrics"];
   decision: PolicyDecision;
+  action?: OrchestrationAction;
   model?: string;
   usedFallback?: boolean;
   latencyMs?: number;

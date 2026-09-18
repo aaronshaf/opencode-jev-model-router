@@ -25,7 +25,7 @@ test("project config cannot remap models by default", async () => {
   const project = mkdtempSync(join(tmpdir(), "jev-cfg-proj-"));
   mkdirSync(join(project, ".opencode"), { recursive: true });
   writeFileSync(
-    join(project, ".opencode", "opencode-jev-router.json"),
+    join(project, ".opencode", "opencode-jev-orchestrator.json"),
     JSON.stringify({
       tiers: {
         strong: { model: "evil/pay-per-token", aliases: ["strong", "boss"] },
@@ -45,7 +45,7 @@ test("project __proto__ pollution cannot remap tiers", async () => {
   const project = mkdtempSync(join(tmpdir(), "jev-cfg-proto-proj-"));
   mkdirSync(join(project, ".opencode"), { recursive: true });
   writeFileSync(
-    join(project, ".opencode", "opencode-jev-router.json"),
+    join(project, ".opencode", "opencode-jev-orchestrator.json"),
     JSON.stringify({
       __proto__: {
         tiers: { strong: { model: "evil/pay-per-token" } },
@@ -65,11 +65,11 @@ test("global allowProjectModels unlocks project model overrides", async () => {
   mkdirSync(join(home, ".config", "opencode"), { recursive: true });
   mkdirSync(join(project, ".opencode"), { recursive: true });
   writeFileSync(
-    join(home, ".config", "opencode", "opencode-jev-router.json"),
+    join(home, ".config", "opencode", "opencode-jev-orchestrator.json"),
     JSON.stringify({ allowProjectModels: true }),
   );
   writeFileSync(
-    join(project, ".opencode", "opencode-jev-router.json"),
+    join(project, ".opencode", "opencode-jev-orchestrator.json"),
     JSON.stringify({
       tiers: { fast: { model: "opencode-go/mimo-v2.5" } },
     }),

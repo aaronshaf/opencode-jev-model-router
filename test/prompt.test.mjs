@@ -95,13 +95,16 @@ test("tierOfModel matches configured refs and fallbacks", () => {
   assert.equal(
     tierOfModel(config, {
       providerID: "opencode-go",
-      modelID: "deepseek-v4.1-flash",
+      modelID: "mimo-v2.5",
     }),
     "balanced",
   );
   assert.equal(
-    tierOfModel(config, { providerID: "opencode-go", modelID: "mimo-v2.5" }),
-    "fast",
+    tierOfModel(config, {
+      providerID: "opencode-go",
+      modelID: "deepseek-v4.1-flash",
+    }),
+    "balanced",
   );
   assert.equal(
     tierOfModel(config, { providerID: "other", modelID: "unknown" }),
@@ -122,7 +125,7 @@ test("modelForTier respects enabled=false and uses fallbacks", () => {
 test("modelForTier skips exhausted primary and uses fallback", () => {
   const dir = mkdtempSync(join(tmpdir(), "jev-quota-"));
   const quota = new QuotaStore({ dir, now: () => 1_000_000 });
-  quota.mark("opencode-go/deepseek-v4.1-flash", 2_000_000, "test", 1_000_000);
+  quota.mark("opencode-go/mimo-v2.5", 2_000_000, "test", 1_000_000);
   const selected = modelForTier(defaultConfig(), "balanced", { quota, now: 1_000_000 });
   assert.equal(selected?.model.modelID, "muse-spark-1.3-contributor");
   assert.equal(selected?.usedFallback, true);

@@ -47,7 +47,7 @@ function safeErrorSummary(err: unknown): Record<string, unknown> {
 export function defaultStateDir(): string {
   const xdg = process.env.XDG_STATE_HOME;
   const root = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "state");
-  return join(root, "opencode-jev-router");
+  return join(root, "opencode-jev-orchestrator");
 }
 
 export class QuotaStore {
